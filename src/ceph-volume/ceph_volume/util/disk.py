@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import stat
+import json
 from ceph_volume import process
 from ceph_volume.api import lvm
 from ceph_volume.util.system import get_file_contents
@@ -718,6 +719,27 @@ def is_locked_raw_device(disk_path):
     return 0
 
 
+def is_locked_raw_deviceV2(disk_path):
+    """
+    wip
+    """
+
+    cmd = ['lslocks', '-J']
+    stdout, stderr, rc = process.call(cmd)
+
+    if rc != 0:
+        raise OSError('lslocks returned failure, stderr: {}'.format(stderr))
+
+    locks = json.loads(stdout)
+
+    if locks and 'locks' in locks:
+        for lock in locks:
+            if lock['path'] == disk_path:
+                return 1
+
+    return 0
+
+
 def get_block_devs_lsblk():
     '''
     This returns a list of lists with 3 items per inner list.
@@ -798,7 +820,7 @@ def get_devices(_sys_block_path='/sys/block'):
         metadata['size'] = float(size) * 512
         metadata['human_readable_size'] = human_readable_size(metadata['size'])
         metadata['path'] = diskname
-        metadata['locked'] = is_locked_raw_device(metadata['path'])
+        metadata['locked'] = is_locked_raw_deviceV2(metadata['path'])
 
         device_facts[diskname] = metadata
     return device_facts
