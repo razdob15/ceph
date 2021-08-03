@@ -176,7 +176,11 @@ class DriveGroupSpec(ServiceSpec):
                  preview_only=False,  # type: bool
                  extra_container_args=None,  # type: Optional[List[str]]
                  data_allocate_fraction=None,  # type: Optional[float]
+<<<<<<< HEAD
                  method=None,  # type: Optional[OSDMethod]
+=======
+                 method=None,  # type: Optional[str]
+>>>>>>> bd5c576f130 (python-common: drivegroup: add 'method' property)
                  ):
         assert service_type is None or service_type == 'osd'
         super(DriveGroupSpec, self).__init__('osd', service_id=service_id,
@@ -332,9 +336,25 @@ class DriveGroupSpec(ServiceSpec):
                 'journal_size must be of type int or string')
 
         if self.filter_logic not in ['AND', 'OR']:
-            raise DriveGroupValidationError(
-                self.service_id,
-                'filter_logic must be either <AND> or <OR>')
+            raise DriveGroupValidationError('filter_logic must be either <AND> or <OR>')
+
+        if self.method not in [None, 'lvm', 'raw']:
+            raise DriveGroupValidationError('method must be one of None, lvm, raw')
+        if self.method == 'raw' and self.objectstore == 'filestore':
+            raise DriveGroupValidationError('method raw only supports bluestore')
+
+    def __repr__(self) -> str:
+        keys = [
+            key for key in self._supported_features if getattr(self, key) is not None
+        ]
+        if 'encrypted' in keys and not self.encrypted:
+            keys.remove('encrypted')
+        if 'objectstore' in keys and self.objectstore == 'bluestore':
+            keys.remove('objectstore')
+        return "DriveGroupSpec(name={}->{})".format(
+            self.service_id,
+            ', '.join('{}={}'.format(key, repr(getattr(self, key))) for key in keys)
+        )
 
         if self.method not in [None, 'lvm', 'raw']:
             raise DriveGroupValidationError(
