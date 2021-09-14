@@ -6,6 +6,7 @@ from ceph_volume import terminal
 from ceph_volume.devices.lvm.activate import Activate as LVMActivate
 from ceph_volume.devices.raw.activate import Activate as RAWActivate
 from ceph_volume.devices.simple.activate import Activate as SimpleActivate
+from ceph_volume.api.lvm import is_lvm_prepared_osd, get_objectstore_from_osd_id
 
 
 class Activate(object):
@@ -42,7 +43,33 @@ class Activate(object):
         )
         self.args = parser.parse_args(self.argv)
 
-        # first try raw
+        if not (self.args.osd_id or self.args.osd_uuid):
+            parser.print_help()
+            terminal.error('Either --osd-id or --osd-uuid must be provided.')
+            raise SystemExit(1)
+
+        # First, try to activate lvm osd
+        lv = is_lvm_prepared_osd(osd_id=self.args.osd_id, osd_uuid=self.args.osd_uuid)
+
+        if lv and get_objectstore_from_osd_id(self.args.osd_id) == 'filestore' and not self.args.osd_uuid: ### TODO: What if --osd-id isn't passed?
+            raise RuntimeError('Filestore osds require --osd-uuid parameter.')
+
+        # LVMActivate([]).activate() will fail if --osd-id *and* --osd-uuid aren't passed
+        if lv and self.args.osd_uuid and self.args.osd_id:
+            terminal.info('Activating LVM osd {}'.format(self.args.osd_id))
+            LVMActivate([]).activate(
+                argparse.Namespace(
+                    osd_id=self.args.osd_id,
+                    osd_fsid=self.args.osd_uuid,
+                    no_tmpfs=self.args.no_tmpfs,
+                    no_systemd=self.args.no_systemd,
+                )
+            )
+            return
+
+        # If it's not an lvm osd, let's try raw.
+        # it can also activate bluestore osds
+        # prepared with lvm when --osd-uuid isn't passed.
         try:
             RAWActivate([]).activate(
                 devs=None,
@@ -55,21 +82,7 @@ class Activate(object):
         except Exception as e:
             terminal.info(f'Failed to activate via raw: {e}')
 
-        # then try lvm
-        try:
-            LVMActivate([]).activate(
-                argparse.Namespace(
-                    osd_id=self.args.osd_id,
-                    osd_fsid=self.args.osd_uuid,
-                    no_tmpfs=self.args.no_tmpfs,
-                    no_systemd=self.args.no_systemd,
-                )
-            )
-            return
-        except Exception as e:
-            terminal.info(f'Failed to activate via lvm: {e}')
-
-        # then try simple
+        # finally try simple
         try:
             SimpleActivate([]).activate(
                 argparse.Namespace(

@@ -1136,6 +1136,44 @@ def get_single_lv(fields=LV_FIELDS, filters=None, tags=None):
 
     return lvs[0]
 
+def is_lvm_prepared_osd(**a):
+    if not a:
+        raise RuntimeError('At least one parameter is required (osd_id or osd_uuid).')
+
+    mapping = {
+        'osd_id': 'ceph.osd_id',
+        'osd_uuid': 'ceph.osd_fsid'
+    }
+
+    for device_type in ['block', 'data']:
+        for k, v in a.items():
+            if v:
+                lv = get_single_lv(tags={mapping[k]: v, 'ceph.type': '{}'.format(device_type)})
+                if lv:
+                    return lv
+    return False
+
+def is_lvm_encrypted_osd(osd_id):
+    pass
+
+def get_objectstore_from_osd_id(osd_id):
+    """
+    Return the osd objectstore type (either 'bluestore' or 'filestore') from the osd id
+
+    :param osd_id: the osd id to be checked
+    :returns: a string containing the objectstore name 'bluestore' or 'filestore' or False
+              if no lvm osd with the given osd_id has been found.
+    """
+    mapping = {
+        'data': 'filestore',
+        'block': 'bluestore'
+    }
+    for k, v in mapping.items():
+        lv = get_single_lv(tags={'ceph.osd_id': osd_id, 'ceph.type': '{}'.format(k)})
+        if lv:
+            return v
+
+    raise RuntimeError("osd {} doesn't exist or isn't an LVM osd".format(osd_id))
 
 def get_lvs_from_osd_id(osd_id):
     return get_lvs(tags={'ceph.osd_id': osd_id})
