@@ -4689,6 +4689,85 @@ def _distribute_ssh_keys(ctx: CephadmContext, host_spec: Dict[str, str], bootstr
             logger.info('Added ssh key to host %s at address %s\n' % (host_spec['hostname'], addr))
     return 0
 
+class Inventory:
+    def __init__(self, valid_group_names=['mons', 'mgrs', 'osds']):
+        self.valid_group_names = valid_group_names + ['admin', 'all']
+        self.groups = []
+        self.inventory = {}
+
+    def generate(self, hosts):
+        if hosts:
+            self.inventory['all'] = {}
+            self.inventory['all']['hosts'] = []
+        for host in hosts:
+            if not host['labels']:
+                self.inventory['all']['hosts'].append(host['hostname'])
+            for label in host['labels']:
+                if label == '_admin':
+                    label = 'admin'
+                if label in self.valid_group_names:
+                    if not label in self.inventory.keys():
+                        self.inventory[label] = {}
+                        self.inventory[label]['hosts'] = []
+                    if not host in self.inventory[label]['hosts']:
+                        self.inventory[label]['hosts'].append(host['hostname'])
+        return self.inventory
+
+
+@infer_fsid
+@infer_config
+@infer_image
+@validate_fsid
+def command_inventory(ctx):
+    # type: (CephadmContext) -> str
+    config, keyring = get_config_and_keyring(ctx)
+    mounts = {}
+
+    if not ctx.keyring and os.path.exists(SHELL_DEFAULT_KEYRING):
+        ctx.keyring = SHELL_DEFAULT_KEYRING
+
+    mounts[ctx.keyring] = '/etc/ceph/ceph.keyring:z'
+
+    with tempfile.NamedTemporaryFile(buffering=0) as tmp:
+        tmp.write(config.encode('utf-8'))
+        mounts[tmp.name] = '/etc/ceph/ceph.conf:ro'
+        c = CephContainer(ctx,
+                image=ctx.image,
+                entrypoint='/usr/bin/ceph',
+                args=['orch', 'host', 'ls', '--format', 'json'],
+                volume_mounts=mounts).run()
+
+    hosts = json.loads(c)
+    i = Inventory()
+    inventory = i.generate(hosts)
+
+#{
+#    "group001": {
+#        "hosts": ["host001", "host002"],
+#        "vars": {
+#            "var1": true
+#        },
+#        "children": ["group002"]
+#    },
+#    "group002": {
+#        "hosts": ["host003","host004"],
+#        "vars": {
+#            "var2": 500
+#        },
+#        "children":[]
+#    }
+#
+#}
+
+# [{'addr': '192.168.121.115', 'hostname': 'generate-inventory', 'labels': ['_admin'], 'status': ''}, {'addr': '192.168.121.4', 'hostname': 'generate-inventory-node2', 'labels': [], 'status': ''}]
+
+  
+
+    logger.info(inventory)
+
+    
+
+    
 
 @default_image
 def command_bootstrap(ctx):
@@ -5206,6 +5285,7 @@ def command_shell(ctx):
         envs=ctx.env,
         privileged=True)
     command = c.shell_cmd(command)
+
 
     return call_timeout(ctx, command, ctx.timeout)
 
@@ -8230,6 +8310,16 @@ def _get_parser():
     parser_agent.add_argument(
         '--daemon-id',
         help='daemon id for agent')
+    parser_inventory = subparsers.add_parser(
+        'inventory', help='generate an ansible inventory')
+    parser_inventory.set_defaults(func=command_inventory)
+    parser_inventory.add_argument(
+        '--fsid',
+        required=True,
+        help='cluster FSID')
+    parser_inventory.add_argument(
+        '--keyring', '-k',
+        help='ceph.keyring to pass through to the container')
 
     return parser
 
