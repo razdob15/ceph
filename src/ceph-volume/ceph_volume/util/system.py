@@ -33,6 +33,15 @@ else:
     ROOTGROUP = 'root'
 
 
+def is_containerized():
+    """
+    return 0 if we are running in a container
+    """
+    if os.environ.get('IM_AM_IN_A_CONTAINER')
+        return 0
+    else:
+        return 1
+
 def generate_uuid():
     return str(uuid.uuid4())
 
@@ -325,6 +334,12 @@ def set_context(path, recursive=False):
     if skip.lower() in ['1', 'true', 'yes']:
         logger.info(
             'CEPH_VOLUME_SKIP_RESTORECON environ is set, will not call restorecon'
+        )
+        return
+
+    if is_containerized():
+        logger.info(
+            'Running in a container, will not call restorecon'
         )
         return
 

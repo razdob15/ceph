@@ -2,7 +2,7 @@ import os
 import sys
 from ceph_volume import terminal, exceptions
 from functools import wraps
-
+from util.system import is_containerized
 
 def needs_root(func):
     """
@@ -11,8 +11,9 @@ def needs_root(func):
     """
     @wraps(func)
     def is_root(*a, **kw):
-        if not os.getuid() == 0:
-            raise exceptions.SuperUserError()
+        if not is_containerized():
+            if not os.getuid() == 0:
+                raise exceptions.SuperUserError()
         return func(*a, **kw)
     return is_root
 
