@@ -300,6 +300,9 @@ class Monitoring(object):
             'memory': '1GB',
             'args': [
                 '--no-collector.timex',
+                '--path.procfs=/rootfs/proc',
+                '--path.sysfs=/rootfs/sys',
+                '--path.rootfs=/rootfs',
             ],
         },
         'grafana': {
@@ -2447,8 +2450,6 @@ def get_container_mounts(ctx, fsid, daemon_type, daemon_id,
             mounts[os.path.join(data_dir, 'etc/prometheus')] = '/etc/prometheus:Z'
             mounts[os.path.join(data_dir, 'data')] = '/prometheus:Z'
         elif daemon_type == 'node-exporter':
-            mounts['/proc'] = '/host/proc:ro'
-            mounts['/sys'] = '/host/sys:ro'
             mounts['/'] = '/rootfs:ro'
         elif daemon_type == 'grafana':
             mounts[os.path.join(data_dir, 'etc/grafana/grafana.ini')] = '/etc/grafana/grafana.ini:Z'
