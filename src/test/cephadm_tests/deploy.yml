@@ -1,0 +1,35 @@
+---
+- hosts: ceph-node-0
+  become: true
+  tasks:
+    - name: create /var/lib/registry
+      file:
+        path: /var/lib/registry
+        state: directory
+
+    - name: run a local registry on the bootstrap node
+      containers.podman.podman_container:
+        name: ceph-testing-registry
+        image: registry:2
+        publish:
+          - "5000:5000"
+        volume:
+          - /var/lib/registry:/var/lib/registry:z
+
+- hosts: all
+  become: true
+  tasks:
+    - name: push image to the registry
+      become: false
+      containers.podman.podman_image:
+        name: "{{ hostvars[groups['all'][0]]['ansible_eth1']['ipv4']['address'] }}:5000/ceph:ceph-testing"
+        push: yes
+        force: no
+        validate_certs: false
+      delegate_to: localhost
+      run_once: true
+
+    - name: pull image on nodes
+      containers.podman.podman_image:
+        name: "{{ hostvars[groups['all'][0]]['ansible_default_ipv4']['address'] }}:5000/ceph:ceph-testing"
+        validate_certs: false
