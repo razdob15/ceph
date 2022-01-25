@@ -324,7 +324,7 @@ def read_from_file(fs):
 def releases():
     return ('argonaut', 'bobtail', 'cuttlefish', 'dumpling', 'emperor',
             'firefly', 'giant', 'hammer', 'infernalis', 'jewel', 'kraken',
-            'luminous', 'mimic', 'nautilus', 'octopus', 'pacific')
+            'luminous', 'mimic', 'nautilus', 'octopus', 'pacific', 'quincy')
 
 def report_params(a):
     global dry_run
