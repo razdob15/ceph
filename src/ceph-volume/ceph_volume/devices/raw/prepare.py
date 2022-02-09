@@ -89,10 +89,14 @@ class Prepare(object):
             self.args = args
         try:
             self.prepare()
-        except Exception:
+        except (Exception, RuntimeError) as e:
+            if isinstance(e, RuntimeError):
+                zap_osd = False
+            else:
+                zap_osd = True
             logger.exception('raw prepare was unable to complete')
             logger.info('will rollback OSD ID creation')
-            rollback_osd(self.args, self.osd_id)
+            rollback_osd(self.args, self.osd_id, zap_osd=zap_osd)
             raise
         dmcrypt_log = 'dmcrypt' if args.dmcrypt else 'clear'
         terminal.success("ceph-volume raw {} prepare successful for: {}".format(dmcrypt_log, self.args.data))

@@ -95,3 +95,16 @@ class TestPrepare(object):
         with pytest.raises(Exception):
             raw.prepare.Prepare(argv=['--bluestore', '--data', '/dev/foo']).main()
         m_rollback_osd.assert_called()
+        assert m_rollback_osd.mock_calls[0][2]['zap_osd']
+
+    @patch('ceph_volume.devices.raw.prepare.rollback_osd')
+    @patch('ceph_volume.devices.raw.prepare.Prepare.prepare')
+    @patch('ceph_volume.util.arg_validators.ValidDevice.__call__')
+    def test_safe_prepare_runtimeerror_raised(self, m_valid_device, m_prepare, m_rollback_osd):
+        m_valid_device.return_value = '/dev/foo'
+        m_prepare.side_effect=RuntimeError('foo')
+        m_rollback_osd.return_value = 'foobar'
+        with pytest.raises(RuntimeError):
+            raw.prepare.Prepare(argv=['--bluestore', '--data', '/dev/foo']).main()
+        m_rollback_osd.assert_called()
+        assert not m_rollback_osd.mock_calls[0][2]['zap_osd']

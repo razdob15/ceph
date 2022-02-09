@@ -250,10 +250,14 @@ class Prepare(object):
             raise RuntimeError("skipping {}, it is already prepared".format(self.args.data))
         try:
             self.prepare()
-        except Exception:
+        except (Exception, RuntimeError) as e:
             logger.exception('lvm prepare was unable to complete')
             logger.info('will rollback OSD ID creation')
-            rollback_osd(self.args, self.osd_id)
+            if isinstance(e, RuntimeError):
+                zap_osd = False
+            else:
+                zap_osd = True
+                rollback_osd(self.args, self.osd_id, zap_osd=zap_osd)
             raise
         terminal.success("ceph-volume lvm prepare successful for: %s" % self.args.data)
 

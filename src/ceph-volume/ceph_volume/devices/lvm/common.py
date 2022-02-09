@@ -5,7 +5,7 @@ from ceph_volume.devices.lvm.zap import Zap
 import argparse
 
 
-def rollback_osd(args, osd_id=None):
+def rollback_osd(args, osd_id=None, zap_osd=False):
     """
     When the process of creating or preparing fails, the OSD needs to be
     destroyed so that the ID can be reused.  This prevents from leaving the ID
@@ -33,7 +33,8 @@ def rollback_osd(args, osd_id=None):
     ]
 
     process.run(cmd)
-    Zap(['--destroy', '--osd-id', osd_id]).main()
+    if zap_osd:
+        Zap(['--destroy', '--osd-id', osd_id]).main()
 
 
 common_args = {
