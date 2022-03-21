@@ -790,12 +790,36 @@ Usage:
         if not svc_arg:
             return HandleCommandResult(-errno.EINVAL, stderr=usage)
         try:
-            host_name, block_device = svc_arg.split(":")
-            block_devices = block_device.split(',')
-            devs = DeviceSelection(paths=block_devices)
+            host_name, devices = svc_arg.split(":")
+            _dev_list = {
+                'block': []
+            }
+            _current_type = None
+            _devices = devices.split(',')
+            while _devices:
+                _dev = _devices[0].split(',', 1)[0]
+                if '=' in _dev:
+                    _current_type, device = _dev.split('=')
+                    _dev_list[_current_type] = []
+                    _dev_list[_current_type].append(device)
+                elif _current_type is not None:
+                    _dev_list[_current_type].append(_dev)
+                else:
+                    _dev_list['block'].append(_dev)
+                _devices.remove(_dev)
+
+            block_devs = DeviceSelection(paths=_dev_list['block'])
             drive_group = DriveGroupSpec(
                 placement=PlacementSpec(host_pattern=host_name),
-                data_devices=devs,
+                data_devices=block_devs,
+                db_devices=(
+                    DeviceSelection(paths=_dev_list['db']) if _dev_list.get('db')
+                    else None
+                ),
+                wal_devices=(
+                    DeviceSelection(paths=_dev_list['wal']) if _dev_list.get('wal')
+                    else None
+                ),
                 method=method,
             )
         except (TypeError, KeyError, ValueError) as e:
