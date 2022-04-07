@@ -70,13 +70,16 @@ def zap_data(path):
     ])
 
 
-def find_associated_devices(osd_id=None, osd_fsid=None):
+def find_associated_devices(osd_id=None, osd_fsid=None, strict_mode=False):
     """
     From an ``osd_id`` and/or an ``osd_fsid``, filter out all the LVs in the
     system that match those tag values, further detect if any partitions are
     part of the OSD, and then return the set of LVs and partitions (if any).
     """
     lv_tags = {}
+    if strict_mode and (osd_id is None or osd_fsid is None):
+        raise RuntimeError('Both osd_id and osd_fsid must be passed.')
+
     if osd_id:
         lv_tags['ceph.osd_id'] = osd_id
     if osd_fsid:
@@ -84,11 +87,12 @@ def find_associated_devices(osd_id=None, osd_fsid=None):
 
     lvs = api.get_lvs(tags=lv_tags)
     if not lvs:
-        raise RuntimeError('Unable to find any LV for zapping OSD: '
-                           '%s' % osd_id or osd_fsid)
-
-    devices_to_zap = ensure_associated_lvs(lvs, lv_tags)
-    return [Device(path) for path in set(devices_to_zap) if path]
+        osd_ids = {'id': osd_id, 'fsid': osd_fsid}
+        message = ["{}: {}".format(str(_id), osd_ids[_id])
+                   for _id in osd_ids if osd_ids[_id] is not None]
+        raise RuntimeError('Unable to find any LV for OSD: {}'.format(' '.join(message)))
+    devices = ensure_associated_lvs(lvs, lv_tags)
+    return [(Device(path), device_type) for path, device_type in set(devices) if path]
 
 
 def ensure_associated_lvs(lvs, lv_tags={}):
@@ -114,15 +118,15 @@ def ensure_associated_lvs(lvs, lv_tags={}):
         # a physical device. Do this for each type (journal,db,wal) regardless
         # if they have been processed in the previous LV, so that bad devices
         # with the same ID can be caught
-        for ceph_lvs, _type in backing_devices:
+        for ceph_lvs, device_type in backing_devices:
             if ceph_lvs:
-                verified_devices.extend([l.lv_path for l in ceph_lvs])
+                verified_devices.extend([(l.lv_path, device_type) for l in ceph_lvs])
                 continue
 
             # must be a disk partition, by querying blkid by the uuid we are
             # ensuring that the device path is always correct
             try:
-                device_uuid = lv.tags['ceph.%s_uuid' % _type]
+                device_uuid = lv.tags['ceph.{}_uuid'.format(device_type)]
             except KeyError:
                 # Bluestore will not have ceph.journal_uuid, and Filestore
                 # will not not have ceph.db_uuid
@@ -133,9 +137,9 @@ def ensure_associated_lvs(lvs, lv_tags={}):
                 # if the osd_device is not found by the partuuid, then it is
                 # not possible to ensure this device exists anymore, so skip it
                 continue
-            verified_devices.append(osd_device)
+            verified_devices.append((osd_device, device_type))
 
-        verified_devices.append(lv.lv_path)
+        verified_devices.append((lv.lv_path, device_type))
 
     # reduce the list from all the duplicates that were added
     return list(set(verified_devices))
@@ -298,7 +302,7 @@ class Zap(object):
                 mlogger.error("OSD ID %s is running, stop it with:" % self.args.osd_id)
                 mlogger.error("systemctl stop ceph-osd@%s" % self.args.osd_id)
                 raise SystemExit("Unable to zap devices associated with OSD ID: %s" % self.args.osd_id)
-        devices = find_associated_devices(self.args.osd_id, self.args.osd_fsid)
+        devices = [device[0] for device in find_associated_devices(self.args.osd_id, self.args.osd_fsid)]
         self.zap(devices)
 
     def dmcrypt_close(self, dmcrypt_uuid):

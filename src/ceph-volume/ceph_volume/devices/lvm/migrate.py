@@ -9,7 +9,7 @@ from ceph_volume.util.arg_validators import valid_osd_id
 from ceph_volume import decorators, terminal, process
 from ceph_volume.api import lvm as api
 from ceph_volume.systemd import systemctl
-
+from .zap import find_associated_devices
 
 logger = logging.getLogger(__name__)
 mlogger = terminal.MultiLogger(__name__)
@@ -37,75 +37,6 @@ def get_cluster_name(osd_id, osd_fsid):
 def get_osd_path(osd_id, osd_fsid):
     return '/var/lib/ceph/osd/{}-{}'.format(
         get_cluster_name(osd_id, osd_fsid), osd_id)
-
-
-def find_associated_devices(osd_id, osd_fsid):
-    """
-    From an ``osd_id`` and/or an ``osd_fsid``, filter out all the LVs in the
-    system that match those tag values, further detect if any partitions are
-    part of the OSD, and then return the set of LVs and partitions (if any).
-    """
-    lv_tags = {}
-    lv_tags['ceph.osd_id'] = osd_id
-    lv_tags['ceph.osd_fsid'] = osd_fsid
-
-    lvs = api.get_lvs(tags=lv_tags)
-    if not lvs:
-        mlogger.error(
-            'Unable to find any LV for source OSD: id:{} fsid:{}'.format(
-                osd_id,  osd_fsid))
-        raise SystemExit('Unexpected error, terminating')
-
-    devices = set(ensure_associated_lvs(lvs, lv_tags))
-    return [(Device(path), type) for path, type in devices if path]
-
-
-def ensure_associated_lvs(lvs, lv_tags):
-    """
-    Go through each LV and ensure if backing devices (journal, wal, block)
-    are LVs or partitions, so that they can be accurately reported.
-    """
-    # look for many LVs for each backing type, because it is possible to
-    # receive a filtering for osd.1, and have multiple failed deployments
-    # leaving many journals with osd.1 - usually, only a single LV will be
-    # returned
-
-    block_lvs = api.get_lvs(tags=merge_dict(lv_tags, {'ceph.type': 'block'}))
-    db_lvs = api.get_lvs(tags=merge_dict(lv_tags, {'ceph.type': 'db'}))
-    wal_lvs = api.get_lvs(tags=merge_dict(lv_tags, {'ceph.type': 'wal'}))
-    backing_devices = [(block_lvs, 'block'), (db_lvs, 'db'),
-                       (wal_lvs, 'wal')]
-
-    verified_devices = []
-
-    for lv in lvs:
-        # go through each lv and append it, otherwise query `blkid` to find
-        # a physical device. Do this for each type (journal,db,wal) regardless
-        # if they have been processed in the previous LV, so that bad devices
-        # with the same ID can be caught
-        for ceph_lvs, type in backing_devices:
-
-            if ceph_lvs:
-                verified_devices.extend([(_lv.lv_path, type) for _lv in ceph_lvs])
-                continue
-
-            # must be a disk partition, by querying blkid by the uuid we are
-            # ensuring that the device path is always correct
-            try:
-                device_uuid = lv.tags['ceph.{}_uuid'.format(type)]
-            except KeyError:
-                # Bluestore will not have ceph.journal_uuid, and Filestore
-                # will not not have ceph.db_uuid
-                continue
-
-            osd_device = disk.get_device_from_partuuid(device_uuid)
-            if not osd_device:
-                # if the osd_device is not found by the partuuid, then it is
-                # not possible to ensure this device exists anymore, so skip it
-                continue
-            verified_devices.append((osd_device, type))
-
-    return verified_devices
 
 
 class VolumeTagTracker(object):
