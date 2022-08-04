@@ -6,6 +6,7 @@ import platform
 import tempfile
 import uuid
 import subprocess
+import concurrent.futures
 from ceph_volume import process, terminal
 from . import as_string
 
@@ -282,6 +283,17 @@ def device_is_mounted(dev, destination=None):
     logger.info('%s was not found as mounted', dev)
     return False
 
+def safe_realpath(path, timeout=1):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(os.path.realpath, path)
+        try:
+            result = future.result(timeout)
+            return result
+        except concurrent.futures._base.TimeoutError:
+            import atexit
+            atexit.unregister(concurrent.futures.thread._python_exit)
+            executor.shutdown = lambda wait:None
+            return None
 
 def get_mounts(devices=False, paths=False, realpath=False):
     """
@@ -315,10 +327,10 @@ def get_mounts(devices=False, paths=False, realpath=False):
         if len(fields) < 3:
             continue
         if realpath:
-            device = os.path.realpath(fields[0]) if fields[0].startswith('/') else fields[0]
+            device = safe_realpath(fields[0]) if fields[0].startswith('/') else fields[0]
         else:
             device = fields[0]
-        path = os.path.realpath(fields[1])
+        path = safe_realpath(fields[1])
         # only care about actual existing devices
         if not os.path.exists(device) or not device.startswith('/'):
             if device not in do_not_skip:

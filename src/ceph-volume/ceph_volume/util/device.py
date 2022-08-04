@@ -2,7 +2,8 @@
 
 import logging
 import os
-from functools import total_ordering
+from concurrent.futures import ProcessPoolExecutor
+from functools import total_ordering, partial
 from ceph_volume import sys_info
 from ceph_volume.api import lvm
 from ceph_volume.util import disk, system
@@ -28,6 +29,14 @@ def encryption_status(abspath):
     return encryption.status(abspath)
 
 
+def _Device(with_lsm, lvs, lsblk_all, all_devices_vgs, path):
+    """
+    A proxy function to call the class Device() with functools.partial.
+    When calling `ProcessPoolExecutor.map()` the additional positional arguments
+    is appended and there is no way to pass a preceding positional argument.
+    """
+    return Device(path, with_lsm, lvs, lsblk_all, all_devices_vgs)
+
 class Devices(object):
     """
     A container for Device instances with reporting
@@ -39,12 +48,13 @@ class Devices(object):
         all_devices_vgs = lvm.get_all_devices_vgs()
         if not sys_info.devices:
             sys_info.devices = disk.get_devices()
-        self.devices = [Device(k,
-                               with_lsm,
-                               lvs=lvs,
-                               lsblk_all=lsblk_all,
-                               all_devices_vgs=all_devices_vgs) for k in
-                        sys_info.devices.keys()]
+
+        partial_device = partial(_Device, with_lsm, lvs, lsblk_all, all_devices_vgs)
+
+
+        with ProcessPoolExecutor() as executor:
+            self.devices = list(executor.map(partial_device, sys_info.devices.keys()))
+
         if filter_for_batch:
             self.devices = [d for d in self.devices if d.available_lvm_batch]
 
@@ -101,6 +111,10 @@ class Device(object):
 
     def __init__(self, path, with_lsm=False, lvs=None, lsblk_all=None, all_devices_vgs=None):
         self.path = path
+        self.with_lsm = with_lsm
+        self.lvs = [] if not lvs else lvs
+        self.lsblk_all = lsblk_all
+        self.all_devices_vgs = all_devices_vgs
         # LVs can have a vg/lv path, while disks will have /dev/sda
         self.symlink = None
         # check if we are a symlink
@@ -117,9 +131,6 @@ class Device(object):
         self.sys_api = sys_info.devices.get(self.path, {})
         self.partitions = self._get_partitions()
         self.lv_api = None
-        self.lvs = [] if not lvs else lvs
-        self.lsblk_all = lsblk_all
-        self.all_devices_vgs = all_devices_vgs
         self.vgs = []
         self.vg_name = None
         self.lv_name = None
@@ -128,7 +139,7 @@ class Device(object):
         self._exists = None
         self._is_lvm_member = None
         self._parse()
-        self.lsm_data = self.fetch_lsm(with_lsm)
+        self.lsm_data = self.fetch_lsm()
         self.ceph_device = None
 
         self.available_lvm, self.rejected_reasons_lvm = self._check_lvm_reject_reasons()
@@ -139,7 +150,7 @@ class Device(object):
 
         self.device_id = self._get_device_id()
 
-    def fetch_lsm(self, with_lsm):
+    def fetch_lsm(self):
         '''
         Attempt to fetch libstoragemgmt (LSM) metadata, and return to the caller
         as a dict. An empty dict is passed back to the caller if the target path
@@ -147,7 +158,7 @@ class Device(object):
         json returned will provide LSM attributes, and any associated errors that
         lsm encountered when probing the device.
         '''
-        if not with_lsm or not self.exists or not self.is_device:
+        if not self.with_lsm or not self.exists or not self.is_device:
             return {}
 
         lsm_disk = LSMDisk(self.path)
@@ -462,9 +473,9 @@ class Device(object):
     def is_partition(self):
         self.load_blkid_api()
         if self.disk_api:
-            return self.disk_api['TYPE'] == 'part'
+            return self.disk_api.get('TYPE') == 'part'
         elif self.blkid_api:
-            return self.blkid_api['TYPE'] == 'part'
+            return self.blkid_api.get('TYPE') == 'part'
         return False
 
     @property
