@@ -1,4 +1,5 @@
 import pytest
+import os
 from mock.mock import patch
 from ceph_volume import process
 from ceph_volume.api import lvm as api
@@ -520,7 +521,8 @@ class TestNew(object):
     def mock_get_lvs(self, *args, **kwargs):
         return self.mock_volumes.pop(0)
 
-    def test_newdb_non_root(self):
+    def test_newdb_non_root(self, monkeypatch):
+        monkeypatch.setattr(os, 'getuid', lambda: 100)
         with pytest.raises(Exception) as error:
             migrate.NewDB(argv=[
                 '--osd-id', '1',
